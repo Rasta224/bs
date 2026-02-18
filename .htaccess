@@ -1,0 +1,11 @@
+RewriteEngine On
+
+# Allow direct access to real static assets (images, css, js, fonts, etc.)
+RewriteRule \.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map|zip)$ - [L]
+
+# Allow direct access to cron_update.php
+RewriteRule ^cron_update\.php$ - [L]
+
+# Route EVERYTHING else through index.php (including /report/, /faq/, etc.)
+# Do NOT skip real directories -- they must go through PHP for link rewriting
+RewriteRule ^ index.php [L,QSA]
