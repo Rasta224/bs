@@ -378,78 +378,103 @@ function set_search_field(direct) { /* search not implemented in clone */ }
 }
 
 /**
- * Returns JS that obfuscates the page DOM on every load:
- * - Injects random CSS classes into every element
- * - Adds random data-* attributes
- * - Inserts invisible <span> elements with random content
- * - Appends a hidden <div> block with random paragraphs
- * This makes every page load produce a unique HTML fingerprint.
+ * SERVER-SIDE obfuscation: modifies the HTML string directly in PHP so
+ * every response has a unique HTML fingerprint even without JavaScript.
+ * 
+ * 1. Injects random CSS classes around every real class (class="abc" -> class="xRk abc pQw")
+ * 2. Adds random data-* attributes to ~25% of elements
+ * 3. Inserts hidden <span> with random text into ~10% of text containers
+ * 4. Appends a hidden <div> block with random paragraphs before </body>
  */
-function getObfuscationScript() {
-    // Generate a few random strings server-side for the hidden block
-    $randParagraphs = '';
-    for ($i = 0; $i < mt_rand(3, 6); $i++) {
-        $words = [];
-        for ($w = 0; $w < mt_rand(5, 15); $w++) {
-            $len = mt_rand(3, 10);
-            $word = '';
-            for ($c = 0; $c < $len; $c++) {
-                $word .= chr(mt_rand(97, 122));
+function applyServerObfuscation($html) {
+    $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $charsLen = strlen($chars);
+
+    // Helper: generate random string of given length
+    $randStr = function($minLen = 4, $maxLen = 9) use ($chars, $charsLen) {
+        $len = mt_rand($minLen, $maxLen);
+        $s = '';
+        // First char always letter (valid CSS class name)
+        for ($i = 0; $i < $len; $i++) {
+            $s .= $chars[mt_rand(0, $charsLen - 1)];
+        }
+        return $s;
+    };
+
+    // 1. Inject random classes around real classes in class="..." attributes
+    //    Uses string parsing to find class="..." and modify inline
+    $html = preg_replace_callback('/\bclass="([^"]+)"/', function($m) use ($randStr) {
+        $classes = preg_split('/\s+/', trim($m[1]));
+        $newClasses = [];
+        foreach ($classes as $cls) {
+            if (empty($cls)) continue;
+            // Add random class before
+            $newClasses[] = $randStr(4, 8);
+            // Keep original class
+            $newClasses[] = $cls;
+            // ~50% chance to add random class after
+            if (mt_rand(0, 1) === 1) {
+                $newClasses[] = $randStr(5, 9);
             }
-            $words[] = $word;
+        }
+        // Add one trailing random class
+        $newClasses[] = $randStr(4, 7);
+        return 'class="' . implode(' ', $newClasses) . '"';
+    }, $html) ?? $html;
+
+    // 2. Add random data-* attributes to ~25% of elements
+    //    Target common tags: div, td, tr, span, a, p, li, table
+    $tagsToAttr = ['<div ', '<td ', '<tr ', '<span ', '<a ', '<p ', '<li ', '<table ', '<ul ', '<h1 ', '<h2 ', '<h3 '];
+    foreach ($tagsToAttr as $tag) {
+        $pos = 0;
+        $tagLen = strlen($tag);
+        while (($pos = stripos($html, $tag, $pos)) !== false) {
+            if (mt_rand(1, 100) <= 25) {
+                $attrName = 'data-' . $randStr(3, 6);
+                $attrVal = $randStr(4, 10);
+                $inject = $tag . $attrName . '="' . $attrVal . '" ';
+                $html = substr_replace($html, $inject, $pos, $tagLen);
+                $pos += strlen($inject);
+            } else {
+                $pos += $tagLen;
+            }
+        }
+    }
+
+    // 3. Insert hidden <span> with random text into ~10% of closing tags of text containers
+    $textTags = ['</p>', '</td>', '</li>', '</h1>', '</h2>', '</h3>', '</h4>'];
+    foreach ($textTags as $closeTag) {
+        $pos = 0;
+        $closeLen = strlen($closeTag);
+        while (($pos = strpos($html, $closeTag, $pos)) !== false) {
+            if (mt_rand(1, 100) <= 10) {
+                $randText = $randStr(5, 15);
+                $randClass = $randStr(4, 8);
+                $hiddenSpan = '<span class="' . $randClass . '" style="position:absolute;left:-9999px;width:0;height:0;overflow:hidden;opacity:0" aria-hidden="true">' . $randText . '</span>';
+                $html = substr_replace($html, $hiddenSpan . $closeTag, $pos, $closeLen);
+                $pos += strlen($hiddenSpan) + $closeLen;
+            } else {
+                $pos += $closeLen;
+            }
+        }
+    }
+
+    // 4. Append hidden <div> block with random paragraphs before </body>
+    $randParagraphs = '';
+    $numP = mt_rand(3, 7);
+    for ($i = 0; $i < $numP; $i++) {
+        $words = [];
+        $numW = mt_rand(5, 15);
+        for ($w = 0; $w < $numW; $w++) {
+            $words[] = $randStr(3, 10);
         }
         $randParagraphs .= '<p>' . implode(' ', $words) . '</p>';
     }
-    $randId = '';
-    for ($i = 0; $i < 8; $i++) $randId .= chr(mt_rand(97, 122));
+    $randId = $randStr(6, 10);
+    $hiddenBlock = '<div id="' . $randId . '" style="position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none" aria-hidden="true">' . $randParagraphs . '</div>';
+    $html = str_replace('</body>', $hiddenBlock . "\n</body>", $html);
 
-    return '<div id="' . $randId . '" style="position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none" aria-hidden="true">' . $randParagraphs . '</div>
-<script>
-(function(){
-  var chars="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  function rc(n){var s="";n=n||(Math.floor(Math.random()*6)+5);for(var i=0;i<n;i++)s+=chars.charAt(Math.floor(Math.random()*chars.length));return s;}
-  function ra(){return"data-"+rc(4);}
-
-  // 1. Add random classes to all elements with existing classes
-  var els=document.querySelectorAll("[class]");
-  for(var i=0;i<els.length;i++){
-    var el=els[i];
-    try{
-      var orig=Array.from(el.classList);
-      var nc=[];
-      for(var j=0;j<orig.length;j++){
-        nc.push(rc());
-        nc.push(orig[j]);
-        if(Math.random()>0.5)nc.push(rc());
-      }
-      nc.push(rc());
-      el.className=nc.join(" ");
-    }catch(e){}
-  }
-
-  // 2. Add random data-* attributes to ~30% of all elements
-  var all=document.querySelectorAll("div,td,tr,span,a,p,li,ul,h1,h2,h3,h4,table,form,input");
-  for(var k=0;k<all.length;k++){
-    if(Math.random()<0.3){
-      try{all[k].setAttribute(ra(),rc(Math.floor(Math.random()*8)+3));}catch(e){}
-    }
-  }
-
-  // 3. Insert invisible spans with random text into some text nodes
-  var targets=document.querySelectorAll("p,td,li,h1,h2,h3,h4,div.smalltext");
-  for(var m=0;m<targets.length;m++){
-    if(Math.random()<0.15){
-      try{
-        var sp=document.createElement("span");
-        sp.style.cssText="position:absolute;left:-9999px;width:0;height:0;overflow:hidden;opacity:0";
-        sp.textContent=rc(Math.floor(Math.random()*12)+4);
-        sp.setAttribute("aria-hidden","true");
-        targets[m].appendChild(sp);
-      }catch(e){}
-    }
-  }
-})();
-</script>';
+    return $html;
 }
 
 function getInteractiveScript() {
@@ -569,7 +594,8 @@ function buildMainPage() {
     $html = getBaseHtml();
     // Inject script that makes all exchanger links on the main page open my exchangers
     $myScript = getMainPageExchangerScript();
-    $html = str_replace('</body>', getInteractiveScript() . "\n" . $myScript . "\n" . getObfuscationScript() . "\n</body>", $html);
+    $html = str_replace('</body>', getInteractiveScript() . "\n" . $myScript . "\n</body>", $html);
+    $html = applyServerObfuscation($html);
     return $html;
 }
 
@@ -697,8 +723,8 @@ function buildStaticPage($filePath) {
     // 9j. Remove "English" footer links that point to bestchange.com
     $html = _safePreg('#<a[^>]*href="https?://[^"]*bestchange\.com[^"]*"[^>]*>[^<]*English[^<]*</a>\s*\|?#i', '', $html);
 
-    // 10. Add obfuscation script
-    $html = str_replace('</body>', getObfuscationScript() . "\n</body>", $html);
+    // 10. Apply server-side obfuscation
+    $html = applyServerObfuscation($html);
 
     return $html;
 }
@@ -750,6 +776,7 @@ function buildExchangePage($fromId, $toId, $fromSlug = null, $toSlug = null) {
         . '<p>Лучшие курсы обмена ' . $fName . ' (' . htmlspecialchars($from['ticker']) . ') на '
         . $tName . ' (' . htmlspecialchars($to['ticker']) . ') от ' . $cnt . ' проверенных обменников.</p>';
     $html = replaceSmallText($html, $newIntro);
-    $html = str_replace('</body>', getInteractiveScript() . "\n" . getObfuscationScript() . "\n</body>", $html);
+    $html = str_replace('</body>', getInteractiveScript() . "\n</body>", $html);
+    $html = applyServerObfuscation($html);
     return $html;
 }
