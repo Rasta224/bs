@@ -510,7 +510,10 @@ function buildStaticPage($filePath) {
     // 7. Fix relative index.html links -> "#" (tabs etc. use onclick, href is just fallback)
     $html = str_replace('href="index.html"', 'href="#"', $html);
 
-    // 8. Remove tracking/analytics
+    // 8. Remove mobile app banner meta tag
+    $html = preg_replace('#<meta\s+name="apple-itunes-app"[^>]*>#i', '', $html);
+
+    // 9. Remove tracking/analytics
     $html = preg_replace('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
 
     // 9. Add obfuscation script
