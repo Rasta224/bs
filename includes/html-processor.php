@@ -115,36 +115,38 @@ function mark_selected(id, direct) {
   var pos = id2pos(id);
   if (pos < 0) return;
   var el = nodeById("d" + direct + id);
-  if (el) el.className = direct + " " + direct + "s";
+  if (el) el.className = "c" + direct;
 }
 function mark_unav(id, direct) {
-  var src = direct == "lc" ? rc_curr : lc_curr;
-  if (src == 0) return;
-  var src_pos = id2pos(src);
   var id_pos = id2pos(id);
-  if (src_pos < 0 || id_pos < 0) return;
-  var avail = direct == "lc" ? av_list[id_pos].charAt(src_pos) : av_list[src_pos].charAt(id_pos);
-  if (avail == "0") {
-    var el = nodeById("d" + direct + id);
-    if (el) el.className = direct + " " + direct + "u";
+  if (id_pos < 0) return;
+  for (var i = 0; i < ds_list.length; i++) {
+    var aEl = nodeById((direct == "rc" ? "alc" : "arc") + ds_list[i]);
+    if (aEl) {
+      aEl.className = direct == "rc"
+        ? (av_list[i].substring(id_pos, id_pos + 1) == "0" ? "unav" : "")
+        : (av_list[id_pos].substring(i, i + 1) == "0" ? "unav" : "");
+    }
   }
 }
 function clk(id, direct, nofollow) {
   var adirect = direct == "rc" ? "lc" : "rc";
-  // reset all cells in this column
-  for (var i = 0; i < ds_list.length; i++) {
-    var el = nodeById("d" + direct + ds_list[i]);
-    if (el) el.className = direct;
+  eval("var old_curr = " + direct + "_curr");
+  if (old_curr == id) return false;
+  // If both already selected and clicking on the same currency in opposite column, reset it
+  if (lc_curr != 0 && rc_curr != 0 && ((direct == "lc" && rc_curr == id) || (direct == "rc" && lc_curr == id))) {
+    eval(adirect + "_curr = 0");
+    var item = nodeById("d" + adirect + id);
+    if (item) item.className = adirect;
   }
-  // set selected
+  var b = (old_curr > 0 && old_curr != id);
   eval(direct + "_curr = " + id);
-  mark_selected(id, direct);
-  // mark unavailable in opposite column
-  for (var j = 0; j < ds_list.length; j++) {
-    var el2 = nodeById("d" + adirect + ds_list[j]);
-    if (el2 && el2.className.indexOf(adirect + "s") < 0) el2.className = adirect;
-    mark_unav(ds_list[j], adirect);
+  if (b) {
+    var item2 = nodeById("d" + direct + old_curr);
+    if (item2) item2.className = direct;
   }
+  mark_selected(id, direct);
+  mark_unav(id, direct);
   // navigate only when both selected
   if (lc_curr != 0 && rc_curr != 0 && !nofollow) goto_list();
   return false;
@@ -174,16 +176,14 @@ function sel_change(direct, locate) {
 }
 function corr_tab(id, direct) {
   if (id != 0) {
-    for (var i = 0; i < ds_list.length; i++) if (ds_list[i] != id) {
-      var el = nodeById("d" + direct + ds_list[i]);
-      if (el) el.className = direct;
+    for (var i = 0; i < ds_list.length; i++) {
+      if (ds_list[i] != id) {
+        var el = nodeById("d" + direct + ds_list[i]);
+        if (el) el.className = direct;
+      }
     }
     mark_selected(id, direct);
-    var adirect = direct == "rc" ? "lc" : "rc";
-    var aid = direct == "rc" ? lc_curr : rc_curr;
-    if (aid != 0) {
-      for (var j = 0; j < ds_list.length; j++) mark_unav(ds_list[j], adirect);
-    }
+    if (direct == "lc" || (direct == "rc" && lc_curr == 0)) mark_unav(id, direct);
   }
 }
 // Tab switching (called by onmousedown="change_ctab(\'tab\')" in HTML)
@@ -429,6 +429,13 @@ function buildExchangePage($fromId, $toId, $fromSlug = null, $toSlug = null) {
     }
 
     $html = getBaseHtml();
+
+    // Set lc_curr and rc_curr BEFORE the init runs, so corr_tab highlights the selected currencies
+    // Replace the default "var lc_curr = 0; var rc_curr = 0;" with the actual currency IDs
+    $html = str_replace('var lc_curr = 0;' . "\n" . 'var rc_curr = 0;',
+                         'var lc_curr = ' . (int)$fromId . ';' . "\n" . 'var rc_curr = ' . (int)$toId . ';',
+                         $html);
+
     $html = replaceTableBody($html, $rows);
     $html = preg_replace('#<title>[^<]*</title>#', '<title>Обмен ' . $fName . ' на ' . $tName . ' | BestChange</title>', $html, 1);
     $newIntro = '<h1>Обмен ' . $fName . ' на ' . $tName . '</h1>'
