@@ -395,6 +395,25 @@ function getMainPageExchangerScript() {
 </script>';
 }
 
+/**
+ * Serve a static HTML page (contacts, faq, list, partner, report, wiki/help).
+ * Reads the saved HTML file, rewrites links, and returns it.
+ */
+function buildStaticPage($filePath) {
+    if (!file_exists($filePath)) return null;
+    $html = @file_get_contents($filePath);
+    if ($html === false || strlen($html) < 100) return null;
+
+    // Rewrite bestchange.ru links to local
+    $html = str_replace('https://www.bestchange.ru/', '/', $html);
+    $html = preg_replace('/href="\/([^"]+)\.html"/', 'href="/$1"', $html);
+
+    // Remove tracking/analytics scripts (mail.ru, metrika, gtag, etc.)
+    $html = preg_replace('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
+
+    return $html;
+}
+
 function buildExchangePage($fromId, $toId, $fromSlug = null, $toSlug = null) {
     $from = getCurrency($fromId);
     $to = getCurrency($toId);
