@@ -1,0 +1,5 @@
+site1.ru:ObmennikSite1
+site2.com:ExchangeSite2
+site3.net:CryptoFast
+site4.org:MoneySwap24
+site5.io:QuickChange
