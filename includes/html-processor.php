@@ -404,11 +404,38 @@ function buildStaticPage($filePath) {
     $html = @file_get_contents($filePath);
     if ($html === false || strlen($html) < 100) return null;
 
-    // Rewrite bestchange.ru links to local
+    // 1. Neutralize sidebar currency links (same as rewriteLinks)
+    $html = preg_replace(
+        '/href="https:\/\/www\.bestchange\.ru\/[^"]*\.html"(\s+id="a[lr]c\d+")/',
+        'href="#"$1',
+        $html
+    );
+
+    // 2. Rewrite form actions
+    $html = str_replace('action="https://www.bestchange.ru/index.php"', 'action="/"', $html);
+
+    // 3. Rewrite bestchange.ru and bestchange.com links to local
     $html = str_replace('https://www.bestchange.ru/', '/', $html);
+    $html = str_replace('https://www.bestchange.com/', '/', $html);
+
+    // 4. Strip .html from href links
     $html = preg_replace('/href="\/([^"]+)\.html"/', 'href="/$1"', $html);
 
-    // Remove tracking/analytics scripts (mail.ru, metrika, gtag, etc.)
+    // 5. Patch JS openDocument to strip .html from URLs
+    $html = str_replace(
+        'function openDocument(url, new_window) {',
+        'function openDocument(url, new_window) { url = url.replace(/\\.html$/, "").replace(/\\.html\\?/, "?");'
+    , $html);
+
+    // 6. Patch JS-generated href links: replace '.html"' with '"' in JS string concatenations
+    //    e.g.: + '.html"' -> + '"'   and  + '.html">' -> + '">'
+    $html = str_replace("+ '.html\"", "+ '\"", $html);
+    $html = str_replace("+ '.html'", "+ ''", $html);
+
+    // 7. Fix relative index.html links -> "#" (tabs etc. use onclick, href is just fallback)
+    $html = str_replace('href="index.html"', 'href="#"', $html);
+
+    // 8. Remove tracking/analytics
     $html = preg_replace('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
 
     return $html;
