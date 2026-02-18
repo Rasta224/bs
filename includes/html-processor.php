@@ -5,6 +5,30 @@
 
 $_cachedHtml = null;
 
+/**
+ * Detect and fix encoding issues. Convert Windows-1251 to UTF-8 if needed,
+ * and replace the charset declaration in the HTML.
+ */
+function fixEncoding($html) {
+    // If it's already valid UTF-8 with no replacement characters, return as-is
+    if (mb_check_encoding($html, 'UTF-8') && strpos($html, "\xEF\xBF\xBD") === false) {
+        // Still replace charset declarations to be safe
+        $html = preg_replace('/charset\s*=\s*"?windows-1251"?/i', 'charset="utf-8"', $html);
+        return $html;
+    }
+
+    // Try converting from Windows-1251 to UTF-8
+    $converted = @iconv('Windows-1251', 'UTF-8//IGNORE', $html);
+    if ($converted !== false && strlen($converted) > 100) {
+        $html = $converted;
+    }
+
+    // Replace charset declarations
+    $html = preg_replace('/charset\s*=\s*"?windows-1251"?/i', 'charset="utf-8"', $html);
+
+    return $html;
+}
+
 function getBaseHtml() {
     global $_cachedHtml;
     if ($_cachedHtml !== null) return $_cachedHtml;
@@ -19,6 +43,7 @@ function getBaseHtml() {
         http_response_code(500);
         die('Cannot read template');
     }
+    $raw = fixEncoding($raw);
     $raw = cleanupScripts($raw);
     $raw = rewriteLinks($raw);
     $_cachedHtml = $raw;
@@ -403,6 +428,8 @@ function buildStaticPage($filePath) {
     if (!file_exists($filePath)) return null;
     $html = @file_get_contents($filePath);
     if ($html === false || strlen($html) < 100) return null;
+
+    $html = fixEncoding($html);
 
     // 1. Neutralize sidebar currency links (same as rewriteLinks)
     $html = preg_replace(
