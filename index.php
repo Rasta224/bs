@@ -17,6 +17,7 @@ require_once __DIR__ . '/includes/html-processor.php';
 $uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/';
 $route = trim(parse_url($uri, PHP_URL_PATH), '/');
 $route = preg_replace('#^index\.php/?#', '', $route);
+$route = rtrim($route, '/'); // normalize trailing slashes
 
 // ── Main page ──
 if ($route === '') {
@@ -72,6 +73,25 @@ if (preg_match('#^debug-slug/(.+)$#', $route, $dm)) {
         if (++$i >= 30) { echo "  ... (" . count($slugs) . " total)\n"; break; }
     }
     exit;
+}
+
+// ── Static pages ──
+$staticPages = [
+    'contacts'  => __DIR__ . '/contacts/index.html',
+    'faq'       => __DIR__ . '/faq/index.html',
+    'list'      => __DIR__ . '/list/index.html',
+    'partner'   => __DIR__ . '/partner/index.html',
+    'report'    => __DIR__ . '/report/index.html',
+    'wiki/help' => __DIR__ . '/wiki/help/index.html',
+];
+
+if (isset($staticPages[$route])) {
+    $html = buildStaticPage($staticPages[$route]);
+    if ($html) {
+        header('Content-Type: text/html; charset=utf-8');
+        echo $html;
+        exit;
+    }
 }
 
 // ── Exchange direction: /xxx-to-yyy ──

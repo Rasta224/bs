@@ -173,8 +173,8 @@ function generateRates($fromId, $toId) {
             'exchangerName' => $ex['name'],
             'give' => $bestGive,
             'receive' => round($bestGet * $bonus, 6),
-            'reserve' => 10000000 + $m * 2000000,
-            'reviews' => 10000 + $m * 5000,
+            'reserve' => mt_rand(5000000, 95000000) + mt_rand(100, 99999) / 100,
+            'reviews' => mt_rand(5000, 7000),
             'linkUrl' => 'https://' . $ex['domain'],
         ];
     }
@@ -186,7 +186,7 @@ function generateRates($fromId, $toId) {
             'give' => $r['g'],
             'receive' => $r['r'],
             'reserve' => $r['rs'],
-            'reviews' => abs($r['rv']),
+            'reviews' => abs($r['rv']) > 0 ? abs($r['rv']) : mt_rand(10, 3500),
             'linkUrl' => getMyExchangerUrl($i),
         ];
     }
