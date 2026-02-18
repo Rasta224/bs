@@ -186,7 +186,7 @@ function generateRates($fromId, $toId) {
             'give' => $r['g'],
             'receive' => $r['r'],
             'reserve' => $r['rs'],
-            'reviews' => abs($r['rv']) > 0 ? abs($r['rv']) : mt_rand(5000, 7000),
+            'reviews' => abs($r['rv']) > 0 ? abs($r['rv']) : mt_rand(10, 3500),
             'linkUrl' => getMyExchangerUrl($i),
         ];
     }
