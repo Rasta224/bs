@@ -5,6 +5,18 @@
 
 $_cachedHtml = null;
 
+/**
+ * Safe preg_replace wrapper: if regex fails (backtracking limit, etc.), return original string
+ */
+function _safePreg($pattern, $replacement, $subject) {
+    $result = preg_replace($pattern, $replacement, $subject);
+    if ($result === null) {
+        // PCRE error -- return untouched
+        return $subject;
+    }
+    return $result;
+}
+
 function getBaseHtml() {
     global $_cachedHtml;
     if ($_cachedHtml !== null) return $_cachedHtml;
@@ -62,18 +74,27 @@ function cleanupScripts($html) {
     }
 
     // 4) Remove any remaining tracking/counter scripts at the end of body
-    // Remove <noscript> blocks (tracking pixels, counters)
-    $html = preg_replace('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
-    $html = preg_replace('#<noscript>.*?</noscript>#s', '', $html);
+    // Remove <noscript> blocks (tracking pixels, counters) -- use safe wrapper
+    $html = _safePreg('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
+    $html = _safePreg('#<noscript>.*?</noscript>#s', '', $html);
 
     // 5) Remove leftover inline <script> blocks with tracking signatures
-    $trackingSignatures = '_tmr|top-fwz|top\.mail\.ru|mail\.ru/counter|mail\.ru/retarget|TMRCounter'
-        . '|googletagmanager|google-analytics|analytics\.google|gtag\s*\('
-        . '|GoogleAnalyticsObject|metrik|yaCounter|Ya\._metrika|mc\.yandex|ym\s*\('
-        . '|fbq\s*\(|connect\.facebook|VK\.Retarget|hotjar|clarity\.ms'
-        . '|sentry|bugsnag|amplitude|mixpanel|segment\.com|sendBeacon|fingerprint'
-        . '|adsbygoogle|googlesyndication|doubleclick|clicky|openstat|tns-counter|adfox';
-    $html = preg_replace('#<script[^>]*>(?=(?:(?!</script>).)*(?:' . $trackingSignatures . ')).*?</script>#si', '', $html);
+    $trackingKeywords = [
+        '_tmr', 'top-fwz', 'top.mail.ru', 'mail.ru/counter', 'mail.ru/retarget', 'TMRCounter',
+        'googletagmanager', 'google-analytics', 'analytics.google', 'GoogleAnalyticsObject',
+        'metrik', 'yaCounter', 'Ya._metrika', 'mc.yandex',
+        'fbq(', 'connect.facebook', 'VK.Retarget', 'hotjar', 'clarity.ms',
+        'sentry', 'bugsnag', 'amplitude', 'mixpanel', 'segment.com', 'sendBeacon', 'fingerprint',
+        'adsbygoogle', 'googlesyndication', 'doubleclick', 'clicky', 'openstat', 'tns-counter', 'adfox',
+    ];
+    // Use preg_replace_callback to avoid catastrophic backtracking
+    $html = preg_replace_callback('#<script[^>]*>(.*?)</script>#si', function($m) use ($trackingKeywords) {
+        $content = $m[1];
+        foreach ($trackingKeywords as $kw) {
+            if (stripos($content, $kw) !== false) return '';
+        }
+        return $m[0];
+    }, $html) ?? $html;
 
     // 6) Remove external script tags loading tracking domains
     $extTrackDomains = 'googletagmanager\.com|google-analytics\.com|analytics\.google\.com'
@@ -81,32 +102,32 @@ function cleanupScripts($html) {
         . '|connect\.facebook\.net|hotjar\.com|clarity\.ms'
         . '|cdn\.amplitude\.com|cdn\.segment\.com|sentry\.io'
         . '|pagead2\.googlesyndication\.com|stats\.g\.doubleclick\.net|counter\.yadro\.ru';
-    $html = preg_replace('#<script[^>]*src=["\'](?:https?:)?//(?:' . $extTrackDomains . ')[^"\']*["\'][^>]*>\s*</script>#i', '', $html);
+    $html = _safePreg('#<script[^>]*src=["\'](?:https?:)?//(?:' . $extTrackDomains . ')[^"\']*["\'][^>]*>\s*</script>#i', '', $html);
 
     // 7) Remove tracking meta tags
-    $html = preg_replace('#<meta\s+name="apple-itunes-app"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+name="google-site-verification"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+name="yandex-verification"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+name="msvalidate\.01"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+name="facebook-domain-verification"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+property="fb:app_id"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="apple-itunes-app"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="google-site-verification"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="yandex-verification"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="msvalidate\.01"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="facebook-domain-verification"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+property="fb:app_id"[^>]*>#i', '', $html);
 
     // 8) Remove tracking link tags (preconnect/dns-prefetch to tracking domains)
-    $html = preg_replace('#<link[^>]*(?:googletagmanager|google-analytics|mc\.yandex|mail\.ru|facebook\.net|hotjar|clarity\.ms)[^>]*>#i', '', $html);
+    $html = _safePreg('#<link[^>]*(?:googletagmanager|google-analytics|mc\.yandex|mail\.ru|facebook\.net|hotjar|clarity\.ms)[^>]*>#i', '', $html);
 
     // 9) Remove yandex-tableau-widget and manifest referencing bestchange
-    $html = preg_replace('#<link\s+rel="yandex-tableau-widget"[^>]*>#i', '', $html);
-    $html = preg_replace('#<link\s+rel="manifest"[^>]*bestchange[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="yandex-tableau-widget"[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="manifest"[^>]*bestchange[^>]*>#i', '', $html);
 
     // 10) Remove 1x1 tracking pixel images
-    $html = preg_replace('#<img[^>]*(?:width=["\']1["\']|height=["\']1["\'])[^>]*(?:mail\.ru|yandex|counter|pixel|track)[^>]*/?\s*>#i', '', $html);
+    $html = _safePreg('#<img[^>]*(?:width=["\']1["\']|height=["\']1["\'])[^>]*(?:mail\.ru|yandex|counter|pixel|track)[^>]*/?\s*>#i', '', $html);
 
     // 11) Remove hreflang/alternate links pointing to bestchange.com/bestchange.ru
-    $html = preg_replace('#<link\s+rel="alternate"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
-    $html = preg_replace('#<link\s+rel="canonical"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="alternate"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="canonical"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
 
     // 12) Remove "English" footer links that point to bestchange.com
-    $html = preg_replace('#<a[^>]*href="https?://[^"]*bestchange\.com[^"]*"[^>]*>[^<]*English[^<]*</a>\s*\|?#i', '', $html);
+    $html = _safePreg('#<a[^>]*href="https?://[^"]*bestchange\.com[^"]*"[^>]*>[^<]*English[^<]*</a>\s*\|?#i', '', $html);
 
     return $html;
 }
@@ -393,26 +414,25 @@ function rewriteLinks($html) {
     // First: neutralize sidebar currency links so they don't navigate on click
     // These links have onclick="return clk(...)" which handles selection logic
     // The href must be "#" so clicking doesn't navigate before both currencies are chosen
-    $html = preg_replace(
+    $html = _safePreg(
         '/href="https:\/\/www\.bestchange\.ru\/[^"]*\.html"(\s+id="a[lr]c\d+")/',
         'href="#"$1',
         $html
     );
 
-    // Rewrite form actions (Список tab)
+    // Rewrite form actions
     $html = str_replace('action="https://www.bestchange.ru/index.php"', 'action="/"', $html);
 
-    // Then rewrite remaining bestchange.ru links to local
+    // Rewrite remaining bestchange links to local
     $html = str_replace('https://www.bestchange.ru/', '/', $html);
-    // Also rewrite bestchange.com links
     $html = str_replace('https://www.bestchange.com/', '/', $html);
 
     // Remove hreflang/alternate links pointing to bestchange domains
-    $html = preg_replace('#<link\s+rel="alternate"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="alternate"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
     // Remove "English" footer link pointing to bestchange.com
-    $html = preg_replace('#<a[^>]*href="https?://[^"]*bestchange\.com[^"]*"[^>]*>[^<]*English[^<]*</a>\s*\|?#i', '', $html);
+    $html = _safePreg('#<a[^>]*href="https?://[^"]*bestchange\.com[^"]*"[^>]*>[^<]*English[^<]*</a>\s*\|?#i', '', $html);
 
-    $html = preg_replace('/href="\/([^"]+)\.html"/', 'href="/$1"', $html);
+    $html = _safePreg('/href="\/([^"]+)\.html"/', 'href="/$1"', $html);
     return $html;
 }
 
@@ -528,7 +548,7 @@ function buildStaticPage($filePath) {
     if ($html === false || strlen($html) < 100) return null;
 
     // 1. Neutralize sidebar currency links (same as rewriteLinks)
-    $html = preg_replace(
+    $html = _safePreg(
         '/href="https:\/\/www\.bestchange\.ru\/[^"]*\.html"(\s+id="a[lr]c\d+")/',
         'href="#"$1',
         $html
@@ -542,7 +562,7 @@ function buildStaticPage($filePath) {
     $html = str_replace('https://www.bestchange.com/', '/', $html);
 
     // 4. Strip .html from href links
-    $html = preg_replace('/href="\/([^"]+)\.html"/', 'href="/$1"', $html);
+    $html = _safePreg('/href="\/([^"]+)\.html"/', 'href="/$1"', $html);
 
     // 5. Patch JS openDocument to strip .html from URLs
     $html = str_replace(
@@ -559,115 +579,67 @@ function buildStaticPage($filePath) {
     $html = str_replace('href="index.html"', 'href="#"', $html);
 
     // 8. Remove mobile app banner meta tag
-    $html = preg_replace('#<meta\s+name="apple-itunes-app"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="apple-itunes-app"[^>]*>#i', '', $html);
 
     // 9. Deep tracking/analytics/spyware removal
     // 9a. Remove <noscript> blocks with tracking pixels
-    $html = preg_replace('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
-    $html = preg_replace('#<noscript>.*?</noscript>#s', '', $html);
+    $html = _safePreg('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
+    $html = _safePreg('#<noscript>.*?</noscript>#s', '', $html);
 
     // 9b. Remove ALL <script> blocks that contain tracking/analytics signatures
-    $trackingPatterns = [
-        '_tmr',                    // Top.Mail.ru tracker
-        'top-fwz',                 // Top.Mail.ru CDN
-        'top\.mail\.ru',           // Mail.ru counter
-        'mail\.ru/counter',        // Mail.ru counter
-        'mail\.ru/retarget',       // Mail.ru retargeting pixel
-        'TMRCounter',              // Mail.ru counter class
-        'googletagmanager',        // Google Tag Manager
-        'google-analytics',        // Google Analytics
-        'analytics\.google',       // Google Analytics endpoint
-        'gtag\s*\(',               // Google gtag()
-        'G-[A-Z0-9]+',            // GA4 measurement IDs
-        'GT-[A-Z0-9]+',           // GTM container IDs
-        'GoogleAnalyticsObject',   // Classic GA
-        'metrik',                  // Yandex.Metrika
-        'yaCounter',               // Yandex counter
-        'Ya\._metrika',            // Yandex metrika object
-        'mc\.yandex',              // Yandex Metrika CDN
-        'ym\s*\(',                 // Yandex Metrika ym() call
-        'fbq\s*\(',               // Facebook Pixel
-        'connect\.facebook',       // Facebook SDK
-        'VK\.Retarget',            // VK retargeting
-        'vk\.com/js/api',          // VK API
-        'top100',                  // Rambler Top100
-        'rambler.*top',            // Rambler top counter
-        'liveinternet',            // LiveInternet counter
-        'hotjar',                  // Hotjar
-        'clarity\.ms',             // Microsoft Clarity
-        'sentry\.io',              // Sentry error tracking
-        'bugsnag',                 // Bugsnag
-        'amplitude',               // Amplitude analytics
-        'mixpanel',                // Mixpanel
-        'segment\.com',            // Segment
-        'plausible',               // Plausible
-        'beacon',                  // Generic beacon
-        'sendBeacon',              // Navigator sendBeacon
-        'fingerprint',             // Fingerprinting
-        'hcaptcha',                // hCaptcha (not needed)
-        'raven',                   // Sentry Raven.js
-        'adsbygoogle',             // Google Ads
-        'googlesyndication',       // Google Ads CDN
-        'doubleclick',             // Google DoubleClick
-        'clicky',                  // Clicky analytics
-        'openstat',                // Openstat counter
-        'tns-counter',             // TNS counter
-        'adfox',                   // AdFox
+    $trackingKeywords = [
+        '_tmr', 'top-fwz', 'top.mail.ru', 'mail.ru/counter', 'mail.ru/retarget', 'TMRCounter',
+        'googletagmanager', 'google-analytics', 'analytics.google',
+        'GoogleAnalyticsObject', 'metrik', 'yaCounter', 'Ya._metrika', 'mc.yandex',
+        'fbq(', 'connect.facebook', 'VK.Retarget', 'vk.com/js/api',
+        'top100', 'liveinternet', 'hotjar', 'clarity.ms',
+        'sentry.io', 'bugsnag', 'amplitude', 'mixpanel', 'segment.com',
+        'sendBeacon', 'fingerprint', 'hcaptcha', 'raven',
+        'adsbygoogle', 'googlesyndication', 'doubleclick', 'clicky', 'openstat', 'tns-counter', 'adfox',
     ];
-    $trackingRegex = implode('|', $trackingPatterns);
-    // Remove script blocks containing any tracking pattern
-    $html = preg_replace('#<script[^>]*>(?=(?:(?!</script>).)*(?:' . $trackingRegex . ')).*?</script>#si', '', $html);
+    $html = preg_replace_callback('#<script[^>]*>(.*?)</script>#si', function($m) use ($trackingKeywords) {
+        $content = $m[1];
+        foreach ($trackingKeywords as $kw) {
+            if (stripos($content, $kw) !== false) return '';
+        }
+        return $m[0];
+    }, $html) ?? $html;
 
     // 9c. Remove external script tags loading tracking domains
-    $trackingDomains = [
-        'googletagmanager\.com',
-        'google-analytics\.com',
-        'analytics\.google\.com',
-        'mc\.yandex\.ru',
-        'top-fwz1\.mail\.ru',
-        'top\.mail\.ru',
-        'connect\.facebook\.net',
-        'vk\.com/js',
-        'hotjar\.com',
-        'clarity\.ms',
-        'cdn\.amplitude\.com',
-        'cdn\.segment\.com',
-        'sentry\.io',
-        'pagead2\.googlesyndication\.com',
-        'stats\.g\.doubleclick\.net',
-        'counter\.yadro\.ru',
-        'ad\.mail\.ru',
-    ];
-    $domainsRegex = implode('|', $trackingDomains);
-    $html = preg_replace('#<script[^>]*src=["\'](?:https?:)?//(?:' . $domainsRegex . ')[^"\']*["\'][^>]*>\s*</script>#i', '', $html);
+    $extDomains = 'googletagmanager\.com|google-analytics\.com|analytics\.google\.com'
+        . '|mc\.yandex\.ru|top-fwz1\.mail\.ru|top\.mail\.ru|ad\.mail\.ru'
+        . '|connect\.facebook\.net|vk\.com/js|hotjar\.com|clarity\.ms'
+        . '|cdn\.amplitude\.com|cdn\.segment\.com|sentry\.io'
+        . '|pagead2\.googlesyndication\.com|stats\.g\.doubleclick\.net|counter\.yadro\.ru';
+    $html = _safePreg('#<script[^>]*src=["\'](?:https?:)?//(?:' . $extDomains . ')[^"\']*["\'][^>]*>\s*</script>#i', '', $html);
 
     // 9d. Remove tracking meta tags
-    $html = preg_replace('#<meta\s+name="google-site-verification"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+name="yandex-verification"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+name="msvalidate\.01"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+name="facebook-domain-verification"[^>]*>#i', '', $html);
-    $html = preg_replace('#<meta\s+property="fb:app_id"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="google-site-verification"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="yandex-verification"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="msvalidate\.01"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+name="facebook-domain-verification"[^>]*>#i', '', $html);
+    $html = _safePreg('#<meta\s+property="fb:app_id"[^>]*>#i', '', $html);
 
     // 9e. Remove tracking link tags (preconnect/dns-prefetch to tracking domains)
-    $html = preg_replace('#<link[^>]*(?:googletagmanager|google-analytics|mc\.yandex|mail\.ru|facebook\.net|hotjar|clarity\.ms)[^>]*>#i', '', $html);
+    $html = _safePreg('#<link[^>]*(?:googletagmanager|google-analytics|mc\.yandex|mail\.ru|facebook\.net|hotjar|clarity\.ms)[^>]*>#i', '', $html);
 
     // 9f. Remove yandex-tableau-widget and manifest links (leak domain info)
-    $html = preg_replace('#<link\s+rel="yandex-tableau-widget"[^>]*>#i', '', $html);
-    $html = preg_replace('#<link\s+rel="manifest"[^>]*bestchange[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="yandex-tableau-widget"[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="manifest"[^>]*bestchange[^>]*>#i', '', $html);
 
     // 9g. Remove 1x1 tracking pixel images
-    $html = preg_replace('#<img[^>]*(?:width=["\']1["\']|height=["\']1["\'])[^>]*(?:mail\.ru|yandex|counter|pixel|track)[^>]*/?\s*>#i', '', $html);
-    $html = preg_replace('#<img[^>]*(?:mail\.ru|yandex|counter|pixel|track)[^>]*(?:width=["\']1["\']|height=["\']1["\'])[^>]*/?\s*>#i', '', $html);
+    $html = _safePreg('#<img[^>]*(?:width=["\']1["\']|height=["\']1["\'])[^>]*(?:mail\.ru|yandex|counter|pixel|track)[^>]*/?\s*>#i', '', $html);
+    $html = _safePreg('#<img[^>]*(?:mail\.ru|yandex|counter|pixel|track)[^>]*(?:width=["\']1["\']|height=["\']1["\'])[^>]*/?\s*>#i', '', $html);
 
     // 9h. Remove any remaining inline event handlers that call tracking (onclick="ym(...)")
-    $html = preg_replace('#\s+on\w+="[^"]*(?:gtag|ym|fbq|_tmr|yaCounter)[^"]*"#i', '', $html);
+    $html = _safePreg('#\s+on\w+="[^"]*(?:gtag|ym|fbq|_tmr|yaCounter)[^"]*"#i', '', $html);
 
     // 9i. Remove hreflang/alternate/canonical links pointing to bestchange.com/bestchange.ru
-    $html = preg_replace('#<link\s+rel="alternate"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
-    $html = preg_replace('#<link\s+rel="canonical"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="alternate"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
+    $html = _safePreg('#<link\s+rel="canonical"[^>]*bestchange\.[a-z]+[^>]*>#i', '', $html);
 
     // 9j. Remove "English" footer links that point to bestchange.com
-    $html = preg_replace('#<a[^>]*href="https?://[^"]*bestchange\.com[^"]*"[^>]*>[^<]*English[^<]*</a>\s*\|?#i', '', $html);
+    $html = _safePreg('#<a[^>]*href="https?://[^"]*bestchange\.com[^"]*"[^>]*>[^<]*English[^<]*</a>\s*\|?#i', '', $html);
 
     // 10. Add obfuscation script
     $html = str_replace('</body>', getObfuscationScript() . "\n</body>", $html);

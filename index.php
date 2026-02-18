@@ -4,11 +4,12 @@
  * Data comes from pre-built cache files (created by cron_update.php).
  */
 
-// Uncomment to debug:
-// ini_set('display_errors', 1); error_reporting(E_ALL);
+// Debug mode
+ini_set('display_errors', 1); error_reporting(E_ALL);
 
 ini_set('memory_limit', '128M');
-ini_set('pcre.backtrack_limit', '5000000');
+ini_set('pcre.backtrack_limit', '10000000');
+ini_set('pcre.recursion_limit', '10000000');
 
 require_once __DIR__ . '/includes/exchange-data.php';
 require_once __DIR__ . '/includes/html-processor.php';
