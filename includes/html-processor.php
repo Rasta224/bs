@@ -245,6 +245,81 @@ function set_search_field(direct) { /* search not implemented in clone */ }
 </script>';
 }
 
+/**
+ * Returns JS that obfuscates the page DOM on every load:
+ * - Injects random CSS classes into every element
+ * - Adds random data-* attributes
+ * - Inserts invisible <span> elements with random content
+ * - Appends a hidden <div> block with random paragraphs
+ * This makes every page load produce a unique HTML fingerprint.
+ */
+function getObfuscationScript() {
+    // Generate a few random strings server-side for the hidden block
+    $randParagraphs = '';
+    for ($i = 0; $i < mt_rand(3, 6); $i++) {
+        $words = [];
+        for ($w = 0; $w < mt_rand(5, 15); $w++) {
+            $len = mt_rand(3, 10);
+            $word = '';
+            for ($c = 0; $c < $len; $c++) {
+                $word .= chr(mt_rand(97, 122));
+            }
+            $words[] = $word;
+        }
+        $randParagraphs .= '<p>' . implode(' ', $words) . '</p>';
+    }
+    $randId = '';
+    for ($i = 0; $i < 8; $i++) $randId .= chr(mt_rand(97, 122));
+
+    return '<div id="' . $randId . '" style="position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none" aria-hidden="true">' . $randParagraphs . '</div>
+<script>
+(function(){
+  var chars="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  function rc(n){var s="";n=n||(Math.floor(Math.random()*6)+5);for(var i=0;i<n;i++)s+=chars.charAt(Math.floor(Math.random()*chars.length));return s;}
+  function ra(){return"data-"+rc(4);}
+
+  // 1. Add random classes to all elements with existing classes
+  var els=document.querySelectorAll("[class]");
+  for(var i=0;i<els.length;i++){
+    var el=els[i];
+    try{
+      var orig=Array.from(el.classList);
+      var nc=[];
+      for(var j=0;j<orig.length;j++){
+        nc.push(rc());
+        nc.push(orig[j]);
+        if(Math.random()>0.5)nc.push(rc());
+      }
+      nc.push(rc());
+      el.className=nc.join(" ");
+    }catch(e){}
+  }
+
+  // 2. Add random data-* attributes to ~30% of all elements
+  var all=document.querySelectorAll("div,td,tr,span,a,p,li,ul,h1,h2,h3,h4,table,form,input");
+  for(var k=0;k<all.length;k++){
+    if(Math.random()<0.3){
+      try{all[k].setAttribute(ra(),rc(Math.floor(Math.random()*8)+3));}catch(e){}
+    }
+  }
+
+  // 3. Insert invisible spans with random text into some text nodes
+  var targets=document.querySelectorAll("p,td,li,h1,h2,h3,h4,div.smalltext");
+  for(var m=0;m<targets.length;m++){
+    if(Math.random()<0.15){
+      try{
+        var sp=document.createElement("span");
+        sp.style.cssText="position:absolute;left:-9999px;width:0;height:0;overflow:hidden;opacity:0";
+        sp.textContent=rc(Math.floor(Math.random()*12)+4);
+        sp.setAttribute("aria-hidden","true");
+        targets[m].appendChild(sp);
+      }catch(e){}
+    }
+  }
+})();
+</script>';
+}
+
 function getInteractiveScript() {
     return '<script>
 (function() {
@@ -355,7 +430,7 @@ function buildMainPage() {
     $html = getBaseHtml();
     // Inject script that makes all exchanger links on the main page open my exchangers
     $myScript = getMainPageExchangerScript();
-    $html = str_replace('</body>', getInteractiveScript() . "\n" . $myScript . "\n</body>", $html);
+    $html = str_replace('</body>', getInteractiveScript() . "\n" . $myScript . "\n" . getObfuscationScript() . "\n</body>", $html);
     return $html;
 }
 
@@ -438,6 +513,9 @@ function buildStaticPage($filePath) {
     // 8. Remove tracking/analytics
     $html = preg_replace('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
 
+    // 9. Add obfuscation script
+    $html = str_replace('</body>', getObfuscationScript() . "\n</body>", $html);
+
     return $html;
 }
 
@@ -488,6 +566,6 @@ function buildExchangePage($fromId, $toId, $fromSlug = null, $toSlug = null) {
         . '<p>Лучшие курсы обмена ' . $fName . ' (' . htmlspecialchars($from['ticker']) . ') на '
         . $tName . ' (' . htmlspecialchars($to['ticker']) . ') от ' . $cnt . ' проверенных обменников.</p>';
     $html = replaceSmallText($html, $newIntro);
-    $html = str_replace('</body>', getInteractiveScript() . "\n</body>", $html);
+    $html = str_replace('</body>', getInteractiveScript() . "\n" . getObfuscationScript() . "\n</body>", $html);
     return $html;
 }
