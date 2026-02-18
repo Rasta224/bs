@@ -17,6 +17,84 @@ function _safePreg($pattern, $replacement, $subject) {
     return $result;
 }
 
+/**
+ * Remove all occurrences of a tag block (e.g. <noscript>...</noscript>) using string parsing.
+ */
+function _removeTagBlocks($html, $tag) {
+    $openTag = '<' . $tag;
+    $closeTag = '</' . $tag . '>';
+    $closeLen = strlen($closeTag);
+    $result = '';
+    $pos = 0;
+    $len = strlen($html);
+    while ($pos < $len) {
+        $start = stripos($html, $openTag, $pos);
+        if ($start === false) {
+            $result .= substr($html, $pos);
+            break;
+        }
+        $result .= substr($html, $pos, $start - $pos);
+        $end = stripos($html, $closeTag, $start);
+        if ($end === false) {
+            // No closing tag, keep rest
+            $result .= substr($html, $start);
+            break;
+        }
+        $pos = $end + $closeLen;
+    }
+    return $result;
+}
+
+/**
+ * Remove <script>...</script> blocks containing any of the tracking keywords.
+ * Uses simple string parsing (no regex) to avoid backtracking on huge HTML.
+ */
+function _removeTrackingScripts($html, $keywords) {
+    $result = '';
+    $pos = 0;
+    $len = strlen($html);
+    while ($pos < $len) {
+        // Find next <script
+        $scriptStart = stripos($html, '<script', $pos);
+        if ($scriptStart === false) {
+            $result .= substr($html, $pos);
+            break;
+        }
+        // Add everything before this <script
+        $result .= substr($html, $pos, $scriptStart - $pos);
+
+        // Find closing </script>
+        $scriptEnd = stripos($html, '</script>', $scriptStart);
+        if ($scriptEnd === false) {
+            // No closing tag found, keep rest as-is
+            $result .= substr($html, $scriptStart);
+            break;
+        }
+        $scriptEnd += 9; // include </script>
+
+        // Extract the full script block
+        $block = substr($html, $scriptStart, $scriptEnd - $scriptStart);
+        $blockLower = strtolower($block);
+
+        // Check if any tracking keyword is present
+        $isTracking = false;
+        foreach ($keywords as $kw) {
+            if (strpos($blockLower, strtolower($kw)) !== false) {
+                $isTracking = true;
+                break;
+            }
+        }
+
+        if (!$isTracking) {
+            $result .= $block; // keep clean scripts
+        }
+        // else: skip the tracking script
+
+        $pos = $scriptEnd;
+    }
+    return $result;
+}
+
 function getBaseHtml() {
     global $_cachedHtml;
     if ($_cachedHtml !== null) return $_cachedHtml;
@@ -74,11 +152,11 @@ function cleanupScripts($html) {
     }
 
     // 4) Remove any remaining tracking/counter scripts at the end of body
-    // Remove <noscript> blocks (tracking pixels, counters) -- use safe wrapper
-    $html = _safePreg('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
-    $html = _safePreg('#<noscript>.*?</noscript>#s', '', $html);
+    // Remove all <noscript> blocks (tracking pixels, counters)
+    $html = _removeTagBlocks($html, 'noscript');
 
     // 5) Remove leftover inline <script> blocks with tracking signatures
+    //    Use string-based approach to avoid regex issues on huge HTML
     $trackingKeywords = [
         '_tmr', 'top-fwz', 'top.mail.ru', 'mail.ru/counter', 'mail.ru/retarget', 'TMRCounter',
         'googletagmanager', 'google-analytics', 'analytics.google', 'GoogleAnalyticsObject',
@@ -87,14 +165,7 @@ function cleanupScripts($html) {
         'sentry', 'bugsnag', 'amplitude', 'mixpanel', 'segment.com', 'sendBeacon', 'fingerprint',
         'adsbygoogle', 'googlesyndication', 'doubleclick', 'clicky', 'openstat', 'tns-counter', 'adfox',
     ];
-    // Use preg_replace_callback to avoid catastrophic backtracking
-    $html = preg_replace_callback('#<script[^>]*>(.*?)</script>#si', function($m) use ($trackingKeywords) {
-        $content = $m[1];
-        foreach ($trackingKeywords as $kw) {
-            if (stripos($content, $kw) !== false) return '';
-        }
-        return $m[0];
-    }, $html) ?? $html;
+    $html = _removeTrackingScripts($html, $trackingKeywords);
 
     // 6) Remove external script tags loading tracking domains
     $extTrackDomains = 'googletagmanager\.com|google-analytics\.com|analytics\.google\.com'
@@ -582,9 +653,8 @@ function buildStaticPage($filePath) {
     $html = _safePreg('#<meta\s+name="apple-itunes-app"[^>]*>#i', '', $html);
 
     // 9. Deep tracking/analytics/spyware removal
-    // 9a. Remove <noscript> blocks with tracking pixels
-    $html = _safePreg('#<noscript>\s*<div>.*?</div>\s*</noscript>#s', '', $html);
-    $html = _safePreg('#<noscript>.*?</noscript>#s', '', $html);
+    // 9a. Remove all <noscript> blocks (tracking pixels, counters)
+    $html = _removeTagBlocks($html, 'noscript');
 
     // 9b. Remove ALL <script> blocks that contain tracking/analytics signatures
     $trackingKeywords = [
@@ -597,21 +667,7 @@ function buildStaticPage($filePath) {
         'sendBeacon', 'fingerprint', 'hcaptcha', 'raven',
         'adsbygoogle', 'googlesyndication', 'doubleclick', 'clicky', 'openstat', 'tns-counter', 'adfox',
     ];
-    $html = preg_replace_callback('#<script[^>]*>(.*?)</script>#si', function($m) use ($trackingKeywords) {
-        $content = $m[1];
-        foreach ($trackingKeywords as $kw) {
-            if (stripos($content, $kw) !== false) return '';
-        }
-        return $m[0];
-    }, $html) ?? $html;
-
-    // 9c. Remove external script tags loading tracking domains
-    $extDomains = 'googletagmanager\.com|google-analytics\.com|analytics\.google\.com'
-        . '|mc\.yandex\.ru|top-fwz1\.mail\.ru|top\.mail\.ru|ad\.mail\.ru'
-        . '|connect\.facebook\.net|vk\.com/js|hotjar\.com|clarity\.ms'
-        . '|cdn\.amplitude\.com|cdn\.segment\.com|sentry\.io'
-        . '|pagead2\.googlesyndication\.com|stats\.g\.doubleclick\.net|counter\.yadro\.ru';
-    $html = _safePreg('#<script[^>]*src=["\'](?:https?:)?//(?:' . $extDomains . ')[^"\']*["\'][^>]*>\s*</script>#i', '', $html);
+    $html = _removeTrackingScripts($html, $trackingKeywords);
 
     // 9d. Remove tracking meta tags
     $html = _safePreg('#<meta\s+name="google-site-verification"[^>]*>#i', '', $html);

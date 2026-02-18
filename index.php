@@ -4,8 +4,8 @@
  * Data comes from pre-built cache files (created by cron_update.php).
  */
 
-// Debug mode
-ini_set('display_errors', 1); error_reporting(E_ALL);
+// Uncomment to debug:
+// ini_set('display_errors', 1); error_reporting(E_ALL);
 
 ini_set('memory_limit', '128M');
 ini_set('pcre.backtrack_limit', '10000000');
